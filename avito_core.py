@@ -12,7 +12,7 @@ from openpyxl import load_workbook
 from collections import defaultdict
 from calendar import monthrange
 
-from full_config import REPORTS_DIR, AVITO_URL
+from config import REPORTS_DIR, AVITO_URL
 
 
 def wait_for_authorization(driver, logger, timeout=300):

@@ -11,7 +11,7 @@ from openpyxl import load_workbook
 from collections import defaultdict
 from calendar import monthrange
 
-from full_config import YANDEX_AUTH_URL, YANDEX_REPORT_URL, REPORTS_DIR
+from config import YANDEX_AUTH_URL, YANDEX_REPORT_URL, REPORTS_DIR
 
 
 def ensure_authorized(driver, logger):

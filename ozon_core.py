@@ -11,7 +11,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.action_chains import ActionChains
 
-from full_config import OZON_BASE_URL, OZON_REPORTS_URL, REPORTS_DIR
+from config import OZON_BASE_URL, OZON_REPORTS_URL, REPORTS_DIR
 
 
 def get_date_with_offset(days_offset=0):
