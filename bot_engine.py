@@ -177,9 +177,11 @@ def _kb(*rows):
 
 
 def kb_policy():      return _kb("✅ Принимаю политику")
-def kb_marketplace(): return _kb("🟡 Яндекс ПВЗ", "🔵 Ozon ПВЗ", "🟣 Авито ПВЗ")
+def kb_marketplace(): return _kb("🟡 Яндекс ПВЗ", "🔵 Ozon ПВЗ", "🟣 Авито ПВЗ", "↩️ Назад в меню")
 def kb_cancel():      return _kb("❌ Отменить авторизацию")
-def kb_stats():       return _kb("📊 Статистика Яндекс", "🔄 Переподключить Яндекс")
+def kb_yandex_stats():return _kb("📊 Статистика Яндекс", "🔄 Переподключить Яндекс", "↩️ Назад к выбору")
+def kb_ozon_stats():  return _kb("📊 Статистика Ozon", "🔄 Переподключить Ozon", "↩️ Назад к выбору")
+def kb_avito_stats(): return _kb("📊 Статистика Авито", "🔄 Переподключить Авито", "↩️ Назад к выбору")
 
 
 def run_yandex_stats(user_id, peer_id, send_fn):
@@ -236,7 +238,7 @@ def run_yandex_stats(user_id, peer_id, send_fn):
 
         if not report_data or not report_data.get('pvz_data'):
             vk_h.flush_buf()
-            send_fn(peer_id, "⚠️ Нет данных в отчёте.", kb_stats())
+            send_fn(peer_id, "⚠️ Нет данных в отчёте.", kb_yandex_stats())
             return
 
         now = datetime.now()
@@ -263,7 +265,7 @@ def run_yandex_stats(user_id, peer_id, send_fn):
             f"Итого прогноз: {total_forecast:,} ₽",
         ]
         vk_h.flush_buf()
-        send_fn(peer_id, "\n".join(lines), kb_stats())
+        send_fn(peer_id, "\n".join(lines), kb_yandex_stats())
 
     except Exception as e:
         import traceback
@@ -271,9 +273,9 @@ def run_yandex_stats(user_id, peer_id, send_fn):
         print(f"[Stats] ОШИБКА {user_id}: {e}\n{tb}")
         vk_h.flush_buf()
         if "устарели" in str(e) or "Нет cookies" in str(e):
-            send_fn(peer_id, f"🔑 {e}\nНажми 🔄 Переподключить Яндекс.", kb_stats())
+            send_fn(peer_id, f"🔑 {e}\nНажми 🔄 Переподключить Яндекс.", kb_yandex_stats())
         else:
-            send_fn(peer_id, f"❌ Ошибка: {str(e)[:150]}\n\n{tb[-350:]}", kb_stats())
+            send_fn(peer_id, f"❌ Ошибка: {str(e)[:150]}\n\n{tb[-350:]}", kb_yandex_stats())
 
 
 def handle_message(peer_id, text, user_id, send_fn):
@@ -297,7 +299,7 @@ def handle_message(peer_id, text, user_id, send_fn):
             return
         threading.Thread(
             target=start_auth_session,
-            args=(user_id, peer_id, send_fn, kb_cancel, kb_marketplace, kb_stats, 'yandex'),
+            args=(user_id, peer_id, send_fn, kb_cancel, kb_marketplace, kb_yandex_stats, 'yandex'),
             daemon=True
         ).start()
 
