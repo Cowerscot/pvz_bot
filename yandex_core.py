@@ -1,4 +1,5 @@
-# yandex_core.py
+# yandex_core.py — Ядро обработки Яндекс.ПВЗ
+
 import time
 from pathlib import Path
 from datetime import datetime, timedelta
@@ -11,7 +12,7 @@ from openpyxl import load_workbook
 from collections import defaultdict
 from calendar import monthrange
 
-from full_config import YANDEX_AUTH_URL, YANDEX_REPORT_URL, REPORTS_DIR
+from config import YANDEX_AUTH_URL, YANDEX_REPORT_URL, REPORTS_DIR
 
 
 def ensure_authorized(driver, logger):
@@ -230,7 +231,17 @@ def analyze_report(filepath, logger):
     return result
 
 
-def process_yandex_report(driver, logger):
+def process_yandex_report(driver, logger, user_id=None):
+    """Основная функция обработки отчёта Яндекс.ПВЗ
+    
+    Args:
+        driver: экземпляр Selenium WebDriver
+        logger: объект логгера
+        user_id: ID пользователя (для работы с cookies конкретного пользователя)
+    
+    Returns:
+        dict: данные отчёта
+    """
     print(f"[Core] process_yandex_report начало")
     yandex_dir = REPORTS_DIR / "Яндекс"
     yandex_dir.mkdir(parents=True, exist_ok=True)
