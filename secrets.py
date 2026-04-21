@@ -16,14 +16,14 @@ NOVNC_URL = "https://pvz-bot.sytes.net/novnc/?autoconnect=1&resize=scale"
 
 # === Яндекс ПВЗ ===
 YANDEX_AUTH_URL = "https://passport.yandex.ru/pwl-yandex/auth/add?retpath=https%3A%2F%2Flogistics.market.yandex.ru%2F...&cause=auth&process_uuid=858f9996-fe09-4ca6-9757-95ba98a8256a"
-YANDEX_REPORT_URL = "https://logistics.market.yandex.ru/reports"
+# YANDEX_REPORT_URL больше не используется - URL формируется динамически
 
 # === Ozon ===
-OZON_BASE_URL = "https://ozon.ru"
-OZON_REPORTS_URL = "https://seller.ozon.ru/api/reports"
+OZON_BASE_URL = "https://turbo-pvz.ozon.ru"
+OZON_REPORTS_URL = "https://turbo-pvz.ozon.ru/reports/subagent"
 
 # === Avito ===
-AVITO_URL = "https://avito.ru"
+AVITO_URL = "https://pvz.avito.ru"
 
 # === Пути ===
 REPORTS_DIR = Path("/opt/pvz-bot/reports")

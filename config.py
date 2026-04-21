@@ -7,7 +7,7 @@ from secrets import (
     # URLs
     BOT_HOST, SELENIUM_URL, SELENIUM_URL_EXT, NOVNC_URL,
     # Яндекс
-    YANDEX_AUTH_URL, YANDEX_REPORT_URL,
+    YANDEX_AUTH_URL,
     # Ozon
     OZON_BASE_URL, OZON_REPORTS_URL,
     # Avito
@@ -17,6 +17,9 @@ from secrets import (
     # Selenium
     CHROME_OPTIONS,
 )
+
+# === Яндекс - URL отчетов формируется динамически ===
+YANDEX_REPORT_URL = None  # Будет получен через get_yandex_reports_url()
 
 # === Настройки логирования ===
 LOG_LEVEL = "INFO"

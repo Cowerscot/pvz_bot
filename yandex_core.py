@@ -1,4 +1,5 @@
 # yandex_core.py
+
 import time
 from pathlib import Path
 from datetime import datetime, timedelta
@@ -11,7 +12,37 @@ from openpyxl import load_workbook
 from collections import defaultdict
 from calendar import monthrange
 
-from config import YANDEX_AUTH_URL, YANDEX_REPORT_URL, REPORTS_DIR
+from config import YANDEX_AUTH_URL, REPORTS_DIR
+
+# Базовый URL Яндекса
+YANDEX_BASE_URL = "https://logistics.market.yandex.ru/"
+
+
+def get_yandex_reports_url(driver, logger):
+    """Получение рабочей ссылки на отчеты через навигацию"""
+    logger.info("  🔍 Получение ID партнера...")
+    try:
+        # Переходим на главную страницу логистики
+        driver.get(YANDEX_BASE_URL + "?activeTab=TPL_PARTNER&page=1")
+        time.sleep(3)
+        
+        # Ищем ссылку на отчеты месяца - она содержит ID партнера
+        # Ссылка вида: /tpl-partner/{id}/month-reports
+        report_links = driver.find_elements(By.XPATH, "//a[contains(@href, '/tpl-partner/') and contains(@href, 'month-reports')]")
+        
+        if report_links:
+            href = report_links[0].get_attribute('href')
+            # Извлекаем ID из URL
+            parts = href.split('/tpl-partner/')
+            if len(parts) > 1:
+                partner_id = parts[1].split('/')[0]
+                logger.info(f"  ✅ ID партнера: {partner_id}")
+                return f"https://hubs.market.yandex.ru/tpl-partner/{partner_id}/month-reports?tabFilter=MONTH_CLOSING_BILLING"
+    except Exception as e:
+        logger.warning(f"  ⚠️ Не удалось получить ID автоматически: {e}")
+    
+    # Fallback на старый URL
+    return "https://logistics.market.yandex.ru/reports"
 
 
 def ensure_authorized(driver, logger):
@@ -59,199 +90,179 @@ def ensure_authorized(driver, logger):
 def open_report_page_and_download(driver, logger, download_dir):
     """Открытие страницы отчётов и скачивание"""
     logger.info("  📄 Открытие страницы отчётов...")
-
-    # Устанавливаем папку загрузки через CDP - ВАЖНО: используем путь контейнера
-    container_download_path = "/home/seluser/Downloads"
+    
+    # Устанавливаем папку загрузки через CDP
     driver.execute_cdp_cmd('Page.setDownloadBehavior', {
         'behavior': 'allow',
-        'downloadPath': container_download_path
+        'downloadPath': str(download_dir)
     })
+    
+    # Получаем актуальный URL отчетов с ID партнера
+    reports_url = get_yandex_reports_url(driver, logger)
+    logger.info(f"  🌐 URL отчетов: {reports_url}")
     
     driver.execute_script("window.open('');")
     driver.switch_to.window(driver.window_handles[-1])
-    driver.get(YANDEX_REPORT_URL)
+    driver.get(reports_url)
     time.sleep(3)
-
+    
     if "passport" in driver.current_url.lower() or "auth" in driver.current_url.lower():
         time.sleep(15)
-        driver.get(YANDEX_REPORT_URL)
+        driver.get(reports_url)
         time.sleep(2)
-
+    
     wait = WebDriverWait(driver, 30)
-
+    
     download_btn = None
     strategies = [
         lambda: wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(., 'Скачать')]"))),
         lambda: driver.find_element(By.XPATH, "//button[contains(., 'Скачать')]"),
     ]
-
+    
     for i, strategy in enumerate(strategies, 1):
         try:
             download_btn = strategy()
-            logger.info(f"  ✅ Кнопка найдена (стратегия {i})")
             break
-        except Exception as e:
-            logger.debug(f"  Стратегия {i} не сработала: {e}")
+        except:
             continue
-
+    
     if not download_btn:
-        driver.save_screenshot("/opt/pvz-bot/debug_page.png")
-        page_text = driver.execute_script("return document.body.innerText;")
-        logger.info(f"  📄 Текст страницы (первые 500): {page_text[:500]}")
-        raise Exception("Кнопка 'Скачать' не найдена. Проверь скриншот.")
-
+        raise Exception("Кнопка 'Скачать' не найдена")
+    
     if not download_btn.is_displayed():
         driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", download_btn)
         time.sleep(1)
-
+    
     try:
         download_btn.click()
-    except Exception:
+    except:
         driver.execute_script("arguments[0].click();", download_btn)
-
+    
     logger.info("  ✅ Скачивание запущено")
 
 
-def _get_container_download_dir(driver):
-    """Определяем папку загрузок внутри контейнера Selenium"""
-    # Стандартные пути для selenium/standalone-chrome
-    return "/home/seluser/Downloads"
-
-
-def wait_for_xlsx_download(download_dir, logger, timeout=60):
-    """
-    Ожидание скачивания XLSX файла
-    
-    Проверяем как основную папку, так и папку загрузок контейнера Selenium
-    """
+def wait_for_xlsx_download(download_dir, logger, timeout=30):
+    """Ожидание скачивания XLSX файла"""
     logger.info("  ⏳ Ожидание файла...")
-    
-    # Папка загрузок контейнера Selenium
-    container_download_dir = Path("/home/seluser/Downloads")
     main_dir = download_dir
     
-    initial_main = {f for f in main_dir.glob("*.xlsx") if f.is_file()}
-    initial_container = {f for f in container_download_dir.glob("*.xlsx") if f.is_file()}
-    
+    initial = {f for f in main_dir.glob("*.xlsx") if f.is_file()}
     waited = 0
     
     while waited < timeout:
         time.sleep(2)
         waited += 2
+        current = {f for f in main_dir.glob("*.xlsx") if f.is_file()}
+        new_files = current - initial
         
-        # Проверяем основную папку
-        current_main = {f for f in main_dir.glob("*.xlsx") if f.is_file()}
-        new_files_main = current_main - initial_main
-        
-        # Проверяем папку контейнера
-        current_container = {f for f in container_download_dir.glob("*.xlsx") if f.is_file()}
-        new_files_container = current_container - initial_container
-        
-        # Если нашли новый файл в контейнере
-        if new_files_container:
-            new_file = max(new_files_container, key=lambda f: f.stat().st_ctime)
-            time.sleep(3)  # Ждем завершения записи
-            
-            # Копируем в основную папку
-            target_file = main_dir / new_file.name
-            try:
-                import shutil
-                shutil.copy2(new_file, target_file)
-                logger.info(f"  ✅ Получен (из контейнера): {new_file.name}")
-                return target_file
-            except Exception as e:
-                logger.warning(f"  ⚠️ Ошибка копирования: {e}")
-                return new_file
-        
-        # Если нашли новый файл в основной папке
-        if new_files_main:
-            new_file = max(new_files_main, key=lambda f: f.stat().st_ctime)
+        if new_files:
+            new_file = max(new_files, key=lambda f: f.stat().st_ctime)
             time.sleep(2)
             logger.info(f"  ✅ Получен: {new_file.name}")
             return new_file
-    
-    # Логируем содержимое папок для отладки
-    logger.info(f"  📁 Основная папка ({main_dir}): {list(main_dir.glob('*'))}")
-    logger.info(f"  📁 Контейнер папка ({container_download_dir}): {list(container_download_dir.glob('*'))}")
     
     raise Exception(f"Файл не появился за {timeout} секунд")
 
 
 def analyze_report(filepath, logger):
+    """Анализ Excel отчёта Яндекс с группировкой по ID ПВЗ"""
     logger.info(f"  📊 Анализ отчёта...")
     wb = load_workbook(filepath, read_only=True)
     if "Транзакции" not in wb.sheetnames:
         raise ValueError("Лист 'Транзакции' не найден")
-
+    
     sheet = wb["Транзакции"]
     headers = [cell.value for cell in sheet[1]]
-
+    
     try:
-        pvz_id_col = headers.index("ID ПВЗ") if "ID ПВЗ" in headers else 0
+        pvz_id_col = 0  # Первая колонка - ID ПВЗ
         time_col = headers.index("Время (мск)")
         amount_col = headers.index("Стоимость услуги, руб")
-    except ValueError as e:
-        raise ValueError(f"Не найдены колонки: {e}")
-
+    except ValueError:
+        raise ValueError("Не найдены колонки: 'Время (мск)' или 'Стоимость услуги, руб'")
+    
+    # Группировка: {pvz_id: {date: amount}}
     pvz_daily_totals = defaultdict(lambda: defaultdict(float))
-
+    
     for row in sheet.iter_rows(min_row=2, values_only=True):
         pvz_id = row[pvz_id_col]
         time_val = row[time_col]
         amount_val = row[amount_col]
-
+        
         if not pvz_id or not time_val or not amount_val:
             continue
-
+        
+        # Парсим дату
         if isinstance(time_val, datetime):
             day = time_val.date()
         elif isinstance(time_val, str):
             try:
                 dt = datetime.strptime(time_val, "%Y-%m-%d %H:%M:%S")
                 day = dt.date()
-            except:
+            except ValueError:
                 continue
         else:
             continue
-
-        try:
-            amount = float(amount_val) if isinstance(amount_val, (int, float)) else float(str(amount_val).replace(',', '.'))
-        except:
+        
+        # Парсим сумму
+        if isinstance(amount_val, (int, float)):
+            amount = float(amount_val)
+        elif isinstance(amount_val, str):
+            try:
+                amount = float(amount_val.replace(',', '.'))
+            except ValueError:
+                continue
+        else:
             continue
-
+        
         pvz_daily_totals[pvz_id][day] += amount
-
+    
     if not pvz_daily_totals:
-        raise ValueError("Нет данных")
-
-    result = {'pvz_data': {}, 'last_date': None}
+        raise ValueError("Нет данных для анализа")
+    
+    # Рассчитываем метрики для каждого ПВЗ
+    result = {
+        'pvz_data': {},
+        'last_date': None
+    }
+    
     overall_last_date = None
-
+    
     for pvz_id, daily_totals in pvz_daily_totals.items():
         last_date = max(daily_totals.keys())
         last_amount = round(daily_totals[last_date])
-
+        
+        # Обновляем общую последнюю дату
         if overall_last_date is None or last_date > overall_last_date:
             overall_last_date = last_date
-
+        
+                # Среднее считаем только по доступным дням текущего месяца
         month_days = {k: v for k, v in daily_totals.items()
                       if k.month == last_date.month and k.year == last_date.year}
+
         available_days = len(month_days)
         avg_daily = round(sum(month_days.values()) / available_days) if available_days > 0 else 0
 
+        # Прогноз = среднее × рабочие дни ПВЗ в месяце
+        # (от первого рабочего дня ПВЗ до конца месяца)
         days_in_month = monthrange(last_date.year, last_date.month)[1]
         first_working_day = min(month_days.keys()).day if month_days else 1
-        working_days = days_in_month - (first_working_day - 1)
-        forecast = round(avg_daily * working_days)
-
+        working_days_in_month = days_in_month - (first_working_day - 1)
+        forecast = round(avg_daily * working_days_in_month)
+        
         result['pvz_data'][pvz_id] = {
             'last_date': last_date,
             'last_amount': last_amount,
             'avg_daily': avg_daily,
             'forecast': forecast
         }
-
+    
     result['last_date'] = overall_last_date
+    
+    # Логируем итоги по каждому ПВЗ
+    for pvz_id, data in sorted(result['pvz_data'].items()):
+        logger.info(f"  💰 ID_{pvz_id}: {data['last_amount']:,} ₽ | Прогноз: {data['forecast']:,} ₽")
+    
     return result
 
 
@@ -275,7 +286,7 @@ def process_yandex_report(driver, logger):
         ensure_authorized(driver, logger)
         time.sleep(2)
         
-        # Скачивание отчёта
+                        # Скачивание отчёта
         open_report_page_and_download(driver, logger, yandex_dir)
         
         # Ожидание файла в папке Яндекс
