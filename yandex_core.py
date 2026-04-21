@@ -60,10 +60,11 @@ def open_report_page_and_download(driver, logger, download_dir):
     """Открытие страницы отчётов и скачивание"""
     logger.info("  📄 Открытие страницы отчётов...")
 
-    # Устанавливаем папку загрузки через CDP
+    # Устанавливаем папку загрузки через CDP - ВАЖНО: используем путь контейнера
+    container_download_path = "/home/seluser/Downloads"
     driver.execute_cdp_cmd('Page.setDownloadBehavior', {
         'behavior': 'allow',
-        'downloadPath': str(download_dir)
+        'downloadPath': container_download_path
     })
     
     driver.execute_script("window.open('');")
@@ -89,7 +90,8 @@ def open_report_page_and_download(driver, logger, download_dir):
             download_btn = strategy()
             logger.info(f"  ✅ Кнопка найдена (стратегия {i})")
             break
-        except:
+        except Exception as e:
+            logger.debug(f"  Стратегия {i} не сработала: {e}")
             continue
 
     if not download_btn:
@@ -104,41 +106,73 @@ def open_report_page_and_download(driver, logger, download_dir):
 
     try:
         download_btn.click()
-    except:
+    except Exception:
         driver.execute_script("arguments[0].click();", download_btn)
 
     logger.info("  ✅ Скачивание запущено")
 
 
 def _get_container_download_dir(driver):
-    """Определяем папку загрузок внутри контейнера"""
-    try:
-        home = driver.execute_script("return navigator.userAgent")
-    except:
-        pass
+    """Определяем папку загрузок внутри контейнера Selenium"""
     # Стандартные пути для selenium/standalone-chrome
     return "/home/seluser/Downloads"
 
 
-def wait_for_xlsx_download(download_dir, logger, timeout=30):
-    """Ожидание скачивания XLSX файла"""
+def wait_for_xlsx_download(download_dir, logger, timeout=60):
+    """
+    Ожидание скачивания XLSX файла
+    
+    Проверяем как основную папку, так и папку загрузок контейнера Selenium
+    """
     logger.info("  ⏳ Ожидание файла...")
+    
+    # Папка загрузок контейнера Selenium
+    container_download_dir = Path("/home/seluser/Downloads")
     main_dir = download_dir
     
-    initial = {f for f in main_dir.glob("*.xlsx") if f.is_file()}
+    initial_main = {f for f in main_dir.glob("*.xlsx") if f.is_file()}
+    initial_container = {f for f in container_download_dir.glob("*.xlsx") if f.is_file()}
+    
     waited = 0
     
     while waited < timeout:
         time.sleep(2)
         waited += 2
-        current = {f for f in main_dir.glob("*.xlsx") if f.is_file()}
-        new_files = current - initial
         
-        if new_files:
-            new_file = max(new_files, key=lambda f: f.stat().st_ctime)
+        # Проверяем основную папку
+        current_main = {f for f in main_dir.glob("*.xlsx") if f.is_file()}
+        new_files_main = current_main - initial_main
+        
+        # Проверяем папку контейнера
+        current_container = {f for f in container_download_dir.glob("*.xlsx") if f.is_file()}
+        new_files_container = current_container - initial_container
+        
+        # Если нашли новый файл в контейнере
+        if new_files_container:
+            new_file = max(new_files_container, key=lambda f: f.stat().st_ctime)
+            time.sleep(3)  # Ждем завершения записи
+            
+            # Копируем в основную папку
+            target_file = main_dir / new_file.name
+            try:
+                import shutil
+                shutil.copy2(new_file, target_file)
+                logger.info(f"  ✅ Получен (из контейнера): {new_file.name}")
+                return target_file
+            except Exception as e:
+                logger.warning(f"  ⚠️ Ошибка копирования: {e}")
+                return new_file
+        
+        # Если нашли новый файл в основной папке
+        if new_files_main:
+            new_file = max(new_files_main, key=lambda f: f.stat().st_ctime)
             time.sleep(2)
             logger.info(f"  ✅ Получен: {new_file.name}")
             return new_file
+    
+    # Логируем содержимое папок для отладки
+    logger.info(f"  📁 Основная папка ({main_dir}): {list(main_dir.glob('*'))}")
+    logger.info(f"  📁 Контейнер папка ({container_download_dir}): {list(container_download_dir.glob('*'))}")
     
     raise Exception(f"Файл не появился за {timeout} секунд")
 
