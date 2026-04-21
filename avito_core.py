@@ -1,4 +1,4 @@
-# avito_core.py
+# avito_core.py — Оригинальная логика Avito
 
 import time
 from pathlib import Path

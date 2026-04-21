@@ -1,4 +1,4 @@
-# ozon_core.py
+# ozon_core.py — Оригинальная логика Ozon
 
 import time
 import re

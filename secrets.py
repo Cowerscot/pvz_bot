@@ -1,5 +1,6 @@
 # secrets.py — Чувствительные данные (токены, пароли, ключи)
 # НЕ КОММИТИТЬ В GIT! Добавить в .gitignore
+from pathlib import Path
 
 # === VK API ===
 VK_ACCESS_TOKEN = "vk1.a.Xr1Qgj3L7lqF4uQaE0nN07783Nj-sQTbdB46NFtizeoQzc1OklbKCTPw-d1maH-7wYFSn4JeU1_QMJjR-UA9u8bz6qAlOSREJYtq-l0Ub_dT4bRYH7nDD6Re8ybDfCU1g5bwEUkJHYMNT3crgyiXjS2FQKkQX8TKJqycOVEPrOpGM2TQLo_IzSOKBtOoIeflCTdrWcWQLWQrGjqumKozJw"
@@ -25,9 +26,9 @@ OZON_REPORTS_URL = "https://seller.ozon.ru/api/reports"
 AVITO_URL = "https://avito.ru"
 
 # === Пути ===
-REPORTS_DIR = "/opt/pvz-bot/reports"
-CHROME_PROFILE_DIR = "/opt/pvz-bot/chrome_profile"
-DB_FILE = "/opt/pvz-bot/bot_database.db"
+REPORTS_DIR = Path("/opt/pvz-bot/reports")
+CHROME_PROFILE_DIR = Path("/opt/pvz-bot/chrome_profile")
+DB_FILE = Path("/opt/pvz-bot/bot_database.db")
 
 # === Настройки Selenium ===
 CHROME_OPTIONS = {
