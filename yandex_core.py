@@ -15,38 +15,59 @@ from config import YANDEX_AUTH_URL, YANDEX_REPORT_URL, REPORTS_DIR
 
 
 def ensure_authorized(driver, logger):
-    """Проверка авторизации — открываем целевой URL и смотрим куда попали"""
+    """Проверка авторизации Яндекс"""
     logger.info("  🔐 Проверка авторизации...")
-
     original_handles = set(driver.window_handles)
     driver.execute_script("window.open('');")
     new_handle = [h for h in driver.window_handles if h not in original_handles][0]
     driver.switch_to.window(new_handle)
-    driver.get(YANDEX_REPORT_URL)
-    time.sleep(3)
-
+    driver.get(YANDEX_AUTH_URL)
+    time.sleep(2)
+    
     current_url = driver.current_url
-    print(f"[Core] URL после открытия: {current_url}")
-
+    
     if "passport.yandex.ru" not in current_url and "auth" not in current_url.lower():
         logger.info("  ✅ Авторизован")
-        driver.close()
-        driver.switch_to.window(list(driver.window_handles)[0])
-        return
-
-    logger.info("  ⚠️ Не авторизован — сессия устарела")
+    else:
+        try:
+            account_btn = driver.find_element(By.CSS_SELECTOR, ".UserLogin-displayName")
+            account_btn.click()
+            time.sleep(2)
+        except:
+            pass
+        
+        try:
+            buttons = driver.find_elements(By.XPATH, "//button[contains(., '@')] | //a[contains(., '@')]")
+            if buttons:
+                buttons[0].click()
+                time.sleep(2)
+        except:
+            pass
+        
+        if "passport.yandex.ru" in driver.current_url or "auth" in driver.current_url.lower():
+            logger.info("  ⏳ Ожидание авторизации...")
+            for _ in range(90):
+                time.sleep(2)
+                if "passport.yandex.ru" not in driver.current_url and "auth" not in driver.current_url.lower():
+                    logger.info("  ✅ Авторизован")
+                    break
+    
     driver.close()
     driver.switch_to.window(list(driver.window_handles)[0])
-    raise Exception("Сессия устарела. Нажми 🔄 Переподключить Яндекс.")
 
 
 def open_report_page_and_download(driver, logger, download_dir):
-    import subprocess
+    """Открытие страницы отчётов и скачивание"""
     logger.info("  📄 Открытие страницы отчётов...")
 
+    # Устанавливаем папку загрузки через CDP
+    driver.execute_cdp_cmd('Page.setDownloadBehavior', {
+        'behavior': 'allow',
+        'downloadPath': str(download_dir)
+    })
+    
     driver.execute_script("window.open('');")
     driver.switch_to.window(driver.window_handles[-1])
-
     driver.get(YANDEX_REPORT_URL)
     time.sleep(3)
 
@@ -99,57 +120,27 @@ def _get_container_download_dir(driver):
     return "/home/seluser/Downloads"
 
 
-def wait_for_xlsx_download(download_dir, logger, timeout=60, container_name="selenium-chrome"):
-    import subprocess
-    logger.info("  ⏳ Ожидание файла в контейнере...")
-
-    container_dl = "/home/seluser/Downloads"
+def wait_for_xlsx_download(download_dir, logger, timeout=30):
+    """Ожидание скачивания XLSX файла"""
+    logger.info("  ⏳ Ожидание файла...")
+    main_dir = download_dir
+    
+    initial = {f for f in main_dir.glob("*.xlsx") if f.is_file()}
     waited = 0
-
-    # Фиксируем начальный список файлов в контейнере
-    try:
-        out = subprocess.check_output(
-            ['docker', 'exec', container_name, 'find', container_dl, '-name', '*.xlsx'],
-            stderr=subprocess.DEVNULL, text=True
-        ).strip()
-        initial_files = set(out.splitlines()) if out else set()
-    except Exception as e:
-        logger.warning(f"  ⚠️ Не удалось получить список файлов контейнера: {e}")
-        initial_files = set()
-
+    
     while waited < timeout:
         time.sleep(2)
         waited += 2
-        try:
-            out = subprocess.check_output(
-                ['docker', 'exec', container_name, 'find', container_dl, '-name', '*.xlsx'],
-                stderr=subprocess.DEVNULL, text=True
-            ).strip()
-            current_files = set(out.splitlines()) if out else set()
-        except Exception:
-            continue
-
-        new_files = current_files - initial_files
-        # Исключаем .crdownload (незавершённые)
-        new_files = {f for f in new_files if not f.endswith('.crdownload')}
-
+        current = {f for f in main_dir.glob("*.xlsx") if f.is_file()}
+        new_files = current - initial
+        
         if new_files:
-            container_path = list(new_files)[0]
-            filename = container_path.split('/')[-1]
-            dest = download_dir / filename
-            logger.info(f"  📦 Копирую из контейнера: {filename}")
-            try:
-                subprocess.check_call(
-                    ['docker', 'cp', f'{container_name}:{container_path}', str(dest)],
-                    stderr=subprocess.DEVNULL
-                )
-                time.sleep(1)
-                logger.info(f"  ✅ Получен: {dest.name}")
-                return dest
-            except Exception as e:
-                raise Exception(f"Не удалось скопировать файл из контейнера: {e}")
-
-    raise Exception(f"Файл не загружен за {timeout} сек")
+            new_file = max(new_files, key=lambda f: f.stat().st_ctime)
+            time.sleep(2)
+            logger.info(f"  ✅ Получен: {new_file.name}")
+            return new_file
+    
+    raise Exception(f"Файл не появился за {timeout} секунд")
 
 
 def analyze_report(filepath, logger):
@@ -231,45 +222,48 @@ def analyze_report(filepath, logger):
 
 
 def process_yandex_report(driver, logger):
-    print(f"[Core] process_yandex_report начало")
+    """Основная функция обработки отчёта Яндекс"""
     yandex_dir = REPORTS_DIR / "Яндекс"
     yandex_dir.mkdir(parents=True, exist_ok=True)
-
+    
     today = datetime.now().date()
     final_path = yandex_dir / f"{today.day:02d}.{today.month:02d}.{today.year}.xlsx"
-
-    print(f"[Core] Ищу файл: {final_path}")
+    
+    # Проверяем существующий файл за сегодня
     if final_path.exists():
         logger.info(f"  ✅ Файл существует: {final_path.name}")
-        print(f"[Core] Файл найден, запускаю analyze_report")
-        return analyze_report(final_path, logger)
-
+        report_data = analyze_report(final_path, logger)
+        return report_data
+    
+    # Файла нет - скачиваем
     try:
+        # Авторизация
         ensure_authorized(driver, logger)
         time.sleep(2)
+        
+        # Скачивание отчёта
         open_report_page_and_download(driver, logger, yandex_dir)
+        
+        # Ожидание файла в папке Яндекс
         new_file = wait_for_xlsx_download(yandex_dir, logger)
         
         if new_file.exists():
             new_file.rename(final_path)
-
+        
+        # Анализ
         report_data = analyze_report(final_path, logger)
-
+        
+        # Закрываем вкладку Яндекса
         if len(driver.window_handles) > 1:
             driver.close()
             driver.switch_to.window(driver.window_handles[0])
-
+        
         return report_data
-
+        
     except Exception as e:
-        import traceback
-        print(f"[Core] ИСКЛЮЧЕНИЕ: {e}")
-        print(f"[Core] Traceback: {traceback.format_exc()}")
-        logger.error(f"Ошибка: {e}")
+        logger.error(f"Ошибка обработки Яндекс: {e}")
+        # Закрываем вкладку при ошибке
         if len(driver.window_handles) > 1:
-            try:
-                driver.close()
-                driver.switch_to.window(driver.window_handles[0])
-            except:
-                pass
+            driver.close()
+            driver.switch_to.window(driver.window_handles[0])
         raise
