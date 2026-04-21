@@ -10,6 +10,7 @@ from flask import Flask, request, send_file
 import requests
 import subprocess
 import os
+from selenium import webdriver
 
 from config import (
     YANDEX_AUTH_URL, CHROME_PROFILE_DIR,
