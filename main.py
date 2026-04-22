@@ -14,6 +14,10 @@ from database import init_db
 init_db()
 print("  ✅ База данных готова")
 
+# Автоматический запуск Selenium если недоступен
+from browser_manager import ensure_selenium_running
+ensure_selenium_running(timeout=60, retry_delay=5)
+
 # Импорт Flask и запуск вебхука
 from flask import Flask, request
 import requests
@@ -121,13 +125,13 @@ def index():
 # =============================================================================
 
 if __name__ == '__main__':
-    # Проверка доступности Selenium
+    # Проверка доступности Selenium (уже запущен выше, но проверим ещё раз для лога)
     print("\n🔧 Bootstrap...")
     try:
         r = requests.get(f'{SELENIUM_URL_EXT}/status', timeout=5)
         print("  ✅ Selenium готов")
     except Exception as e:
-        print(f"  ❌ Selenium: {e}")
+        print(f"  ⚠️ Selenium: {e} (возможно работает в фоне)")
     
     # Проверка noVNC
     try:

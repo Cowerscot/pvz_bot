@@ -3,10 +3,12 @@
 import time
 import json
 import threading
+import subprocess
+import requests
 from datetime import datetime
 from selenium import webdriver
 
-from config import SELENIUM_URL, CHROME_OPTIONS
+from config import SELENIUM_URL, CHROME_OPTIONS, SELENIUM_RETRY_ATTEMPTS, SELENIUM_RETRY_DELAY
 
 
 # === Глобальные переменные ===
@@ -14,6 +16,99 @@ _shared_driver = None
 _shared_driver_lock = threading.Lock()
 active_sessions = {}
 active_sessions_lock = threading.Lock()
+
+
+def ensure_selenium_running(timeout=60, retry_delay=5):
+    """
+    Автоматический запуск Selenium Grid через Docker если он недоступен.
+    
+    Args:
+        timeout: Максимальное время ожидания запуска (секунды)
+        retry_delay: Задержка между проверками (секунды)
+    
+    Returns:
+        bool: True если Selenium доступен, False иначе
+    """
+    print("[Selenium] Проверка доступности...")
+    
+    # Проверяем текущее состояние
+    if is_selenium_available():
+        print("  ✅ Selenium уже запущен")
+        return True
+    
+    print("  ⚠️ Selenium недоступен, пытаюсь запустить...")
+    
+    # Попытка запуска через docker-compose
+    compose_commands = [
+        ["docker-compose", "-f", "/opt/pvz-bot/docker-compose.yml", "up", "-d", "selenium"],
+        ["docker-compose", "-f", "/opt/pvz-bot/docker-compose.yml", "up", "-d", "chrome"],
+        ["docker-compose", "up", "-d", "selenium"],
+        ["docker-compose", "up", "-d", "chrome"],
+    ]
+    
+    for cmd in compose_commands:
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            if result.returncode == 0:
+                print(f"  🔄 Запущено: {' '.join(cmd)}")
+                break
+        except Exception as e:
+            continue
+    
+    # Если docker-compose не сработал, пробуем прямой запуск контейнера
+    if not is_selenium_available():
+        try:
+            print("  🔄 Запуск standalone Chrome контейнера...")
+            subprocess.run([
+                "docker", "run", "-d",
+                "--name", "selenium-chrome",
+                "-p", "4444:4444",
+                "-p", "7900:7900",
+                "--shm-size=2g",
+                "--restart", "unless-stopped",
+                "seleniarm/standalone-chromium:latest"
+            ], capture_output=True, text=True, timeout=30)
+            print("  🔄 Контейнер запущен")
+        except Exception as e:
+            print(f"  ⚠️ Не удалось запустить контейнер: {e}")
+    
+    # Ожидание готовности Selenium
+    print(f"  ⏳ Ожидание готовности Selenium (до {timeout} сек)...")
+    start_time = time.time()
+    
+    while time.time() - start_time < timeout:
+        time.sleep(retry_delay)
+        if is_selenium_available():
+            print("  ✅ Selenium готов")
+            return True
+        elapsed = int(time.time() - start_time)
+        print(f"  ⏳ Ожидание... ({elapsed}/{timeout} сек)")
+    
+    print("  ❌ Не удалось запустить Selenium")
+    return False
+
+
+def is_selenium_available():
+    """Проверка доступности Selenium Grid"""
+    try:
+        # Пробуем оба URL (внутренний и внешний)
+        urls_to_check = [SELENIUM_URL.rstrip('/'), SELENIUM_URL.rstrip('/') + '/wd/hub']
+        
+        for url in urls_to_check:
+            try:
+                r = requests.get(f"{url}/status", timeout=3)
+                if r.status_code == 200:
+                    return True
+            except:
+                continue
+        
+        # Дополнительная проверка через /status без префикса
+        base_url = SELENIUM_URL.split('/wd/hub')[0] if '/wd/hub' in SELENIUM_URL else SELENIUM_URL
+        r = requests.get(f"{base_url}/status", timeout=3)
+        return r.status_code == 200
+        
+    except Exception:
+        return False
 
 
 def _make_options():
