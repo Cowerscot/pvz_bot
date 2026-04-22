@@ -18,15 +18,24 @@ from config import YANDEX_AUTH_URL, REPORTS_DIR
 YANDEX_BASE_URL = "https://logistics.market.yandex.ru/"
 
 
-def get_yandex_reports_url(driver, logger):
+def get_yandex_reports_url(driver, logger, vk_id=None):
     """Получение рабочей ссылки на отчеты через навигацию"""
     logger.info("  🔍 Получение ID партнера...")
+    
+    # Сначала пробуем получить из базы данных
+    if vk_id:
+        from database import get_yandex_partner_id
+        saved_partner_id = get_yandex_partner_id(vk_id)
+        if saved_partner_id:
+            logger.info(f"  ✅ ID партнера из БД: {saved_partner_id}")
+            return f"https://hubs.market.yandex.ru/tpl-partner/{saved_partner_id}/month-reports?tabFilter=MONTH_CLOSING_BILLING"
+    
     try:
         # Переходим на главную страницу логистики
         driver.get(YANDEX_BASE_URL + "?activeTab=TPL_PARTNER&page=1")
         time.sleep(3)
         
-        # Ищем ссылку на отчеты месяца - она содержит ID партнера
+        # Стратегия 1: Ищем ссылку на отчеты месяца - она содержит ID партнера
         # Ссылка вида: /tpl-partner/{id}/month-reports
         report_links = driver.find_elements(By.XPATH, "//a[contains(@href, '/tpl-partner/') and contains(@href, 'month-reports')]")
         
@@ -36,8 +45,57 @@ def get_yandex_reports_url(driver, logger):
             parts = href.split('/tpl-partner/')
             if len(parts) > 1:
                 partner_id = parts[1].split('/')[0]
-                logger.info(f"  ✅ ID партнера: {partner_id}")
+                logger.info(f"  ✅ ID партнера (из ссылки): {partner_id}")
+                # Сохраняем ID в базу если передан vk_id
+                if vk_id:
+                    from database import save_yandex_partner_id
+                    save_yandex_partner_id(vk_id, partner_id)
                 return f"https://hubs.market.yandex.ru/tpl-partner/{partner_id}/month-reports?tabFilter=MONTH_CLOSING_BILLING"
+        
+        # Стратегия 2: Парсим страницу в поисках элемента содержащего номер партнера
+        # Ищем любые элементы содержащие числовой ID (похожий на 148761735)
+        page_source = driver.page_source
+        import re
+        # Ищем паттерн: последовательность из 9 цифр (типичный формат ID партнера)
+        partner_ids = re.findall(r'\b(\d{9})\b', page_source)
+        
+        if partner_ids:
+            # Берем первый найденный ID (обычно это и есть ID партнера)
+            partner_id = partner_ids[0]
+            logger.info(f"  ✅ ID партнера (парсинг страницы): {partner_id}")
+            # Сохраняем ID в базу если передан vk_id
+            if vk_id:
+                from database import save_yandex_partner_id
+                save_yandex_partner_id(vk_id, partner_id)
+            return f"https://hubs.market.yandex.ru/tpl-partner/{partner_id}/month-reports?tabFilter=MONTH_CLOSING_BILLING"
+        
+        # Стратегия 3: Пробуем найти через JavaScript
+        partner_id = driver.execute_script("""
+            // Попытка найти ID партнера через глобальные переменные или данные страницы
+            var scripts = document.getElementsByTagName('script');
+            for (var i = 0; i < scripts.length; i++) {
+                var content = scripts[i].textContent || scripts[i].innerHTML;
+                var match = content.match(/"partnerId"\\s*:\\s*"?(\\d+)"?/);
+                if (match) return match[1];
+                match = content.match(/"id"\\s*:\\s*"?(\\d{9})"?/);
+                if (match) return match[1];
+            }
+            // Проверяем data-атрибуты
+            var elements = document.querySelectorAll('[data-partner-id], [data-user-id]');
+            for (var i = 0; i < elements.length; i++) {
+                var id = elements[i].getAttribute('data-partner-id') || elements[i].getAttribute('data-user-id');
+                if (id && /^\\d+$/.test(id)) return id;
+            }
+            return null;
+        """)
+        
+        if partner_id:
+            logger.info(f"  ✅ ID партнера (JavaScript): {partner_id}")
+            if vk_id:
+                from database import save_yandex_partner_id
+                save_yandex_partner_id(vk_id, partner_id)
+            return f"https://hubs.market.yandex.ru/tpl-partner/{partner_id}/month-reports?tabFilter=MONTH_CLOSING_BILLING"
+            
     except Exception as e:
         logger.warning(f"  ⚠️ Не удалось получить ID автоматически: {e}")
     
@@ -87,7 +145,7 @@ def ensure_authorized(driver, logger):
     driver.switch_to.window(list(driver.window_handles)[0])
 
 
-def open_report_page_and_download(driver, logger, download_dir):
+def open_report_page_and_download(driver, logger, download_dir, vk_id=None):
     """Открытие страницы отчётов и скачивание"""
     logger.info("  📄 Открытие страницы отчётов...")
     
@@ -98,7 +156,7 @@ def open_report_page_and_download(driver, logger, download_dir):
     })
     
     # Получаем актуальный URL отчетов с ID партнера
-    reports_url = get_yandex_reports_url(driver, logger)
+    reports_url = get_yandex_reports_url(driver, logger, vk_id)
     logger.info(f"  🌐 URL отчетов: {reports_url}")
     
     driver.execute_script("window.open('');")
@@ -266,7 +324,7 @@ def analyze_report(filepath, logger):
     return result
 
 
-def process_yandex_report(driver, logger):
+def process_yandex_report(driver, logger, vk_id=None):
     """Основная функция обработки отчёта Яндекс"""
     yandex_dir = REPORTS_DIR / "Яндекс"
     yandex_dir.mkdir(parents=True, exist_ok=True)
@@ -286,8 +344,8 @@ def process_yandex_report(driver, logger):
         ensure_authorized(driver, logger)
         time.sleep(2)
         
-                        # Скачивание отчёта
-        open_report_page_and_download(driver, logger, yandex_dir)
+        # Скачивание отчёта
+        open_report_page_and_download(driver, logger, yandex_dir, vk_id)
         
         # Ожидание файла в папке Яндекс
         new_file = wait_for_xlsx_download(yandex_dir, logger)

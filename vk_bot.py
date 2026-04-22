@@ -135,7 +135,7 @@ def run_yandex_stats(user_id, peer_id, send_fn):
             logger.warning(f"⚠️ Ошибка загрузки куки: {e}")
         
         from yandex_core import process_yandex_report
-        report_data = process_yandex_report(driver, logger)
+        report_data = process_yandex_report(driver, logger, user_id)
         
         if not report_data or not report_data.get('pvz_data'):
             vk_h.flush_buf()

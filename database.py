@@ -21,7 +21,8 @@ def init_db():
         yandex_cookies TEXT,
         ozon_cookies TEXT,
         avito_cookies TEXT,
-        connected INTEGER DEFAULT 0
+        connected INTEGER DEFAULT 0,
+        yandex_partner_id TEXT
     )''')
     
     # Таблица обработанных событий (для идемпотентности)
@@ -68,6 +69,42 @@ def get_or_create_user(vk_id):
                 "INSERT INTO users (vk_id, first_seen) VALUES (?, ?)",
                 (vk_id, datetime.now().isoformat())
             )
+
+
+def save_yandex_partner_id(vk_id, partner_id):
+    """
+    Сохранение ID партнера Яндекс для пользователя
+    
+    Args:
+        vk_id: ID пользователя
+        partner_id: ID партнера Яндекс (например, '148761735')
+    """
+    with _connect() as conn:
+        conn.execute(
+            "UPDATE users SET yandex_partner_id = ? WHERE vk_id = ?",
+            (partner_id, vk_id)
+        )
+    print(f"[Database] Сохранен Yandex Partner ID {partner_id} для пользователя {vk_id}")
+
+
+def get_yandex_partner_id(vk_id):
+    """
+    Получение ID партнера Яндекс для пользователя
+    
+    Args:
+        vk_id: ID пользователя
+    
+    Returns:
+        str: ID партнера или None если не найден
+    """
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT yandex_partner_id FROM users WHERE vk_id = ?", (vk_id,)
+        ).fetchone()
+    
+    if row and row[0]:
+        return row[0]
+    return None
 
 
 def save_cookies(vk_id, cookies, marketplace='yandex'):
